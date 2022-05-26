@@ -1,0 +1,921 @@
+openapi: 3.1.0
+info:
+  version: 1.0.0
+  title: Api Integração Vtex
+  x-logo:
+    url: https://www.saojoaofarmacias.com.br/assets/images/logo.png
+    backgroundColor: '#fafafa'
+    altText: Logo FSJ
+  description: >
+    # Introdução
+
+
+    Esta api é responsável por persistir/trocar dados com o Marketplace Vtex. A
+    api consume a mensageria,
+
+    recebendo os eventos de integração, enrriquece os dados e chama os Endpoints
+    da Vtex para poder persistir os dados.
+
+    Após integrar os dados insere ou atualiza as informações consumindo o banco
+    de dados em mongo
+
+
+    Documentação FSJ [Casos de uso Integração
+    Vtex](https://redmine.farmaciassaojoao.com.br/projects/integracao-vtex/wiki/Casos_de_uso)
+
+
+    Documentação Vtex [Link Documentação
+    Vtex](https://developers.vtex.com/vtex-rest-api/docs).
+
+
+    # Funcionamento
+     \
+    A api de integração Vtex consume a mensageria, recebendo os eventos de
+    integração com o schedule agendado. Consulta o banco de dados Mongo que
+    contem informações das integrações já efetuadas,
+
+    de acordo com o retorno do banco é decidio se vai ser ser uma integração ou
+    atualização de informação.
+
+    Consome os gateways FSJ de acordo com a chamada de integração solicitada 
+
+
+    ex:produto chama a api de produto, promoção chama a api de promoção...
+
+
+    Enriquece os dados do Objeto a ser persistido na vtex e comunica com a Api
+    da vtex seguindo para a parte final da integração. Caso seja a primeira
+    integração desta informação, grava o id de retorno no mongo.
+
+    Caso seja uma atualização de informação finaliza o fluxo.
+tags:
+  - name: Estoque
+    description: >-
+      Fluxo de integração/atualização de estoque. Responsável por pesquisar o
+      estoque à partir do `idloja` e `IdProduto` no gateway de estoque,
+      enriquecer o dado preenchendo um Objeto que será enviado para a Vtex.
+  - name: Loja
+    description: >-
+      Fluxo de integração/atualização de loja/lojaWarehouse. Responsável
+      pesquisar no gateway informações sobre o de loja à partir do parâmetro
+      `lojaId`. Enriquecer os dados recebidos do gateway, transformando-os em
+      Objetos(um de loja e outro de warehouse) que serão enviados para Vtex.
+  - name: Pedido
+    description: >
+      Fluxo responsável por consumir/inserir e deletar configurações do feed de
+      pedidos
+
+
+      * Consumir feed de pedidos Vtex: pesquisa na vtex todos os pedidos com o
+      status  `ready-for-handling`,
+        transformando-os em Objetos de pedido FSJ (pesquisando no banco de dados local por idDe de loja e produto),
+        para posteriormente enviar para a api de pedidos reponsável por salvar os pedidos na base de dados FSJ
+
+      * Inserir configuração de feed de pedidos Vtex: envia um Objeto para a
+      vtex, setando as configurações de feed de pedidos desejada
+
+
+      * Deletar configuração de feed de pedidos Vtex: Chama o gateway
+      responsável por deletar as configurações de feed de pedidos
+  - name: Preço
+    description: >
+      Fluxo de integração/atualização. Responsável por pesquisar o preço à
+      partir dos parâmetros
+
+      `produtoId`(passado por por chamada) e `FSJ_LOJAID_DEFAULT`(passado via
+      conf) no gateway de preço.
+
+      Enriquecer o dado preenchendo o Objeto que será enviado para a Vtex.
+  - name: Produto/Sku
+    description: >
+      Fluxo responsável por persistir/atualizar informações referentes a
+      produto, especificação de produto e sku.
+
+
+      * Inserir/atualizar produto: O fluxo de integração de produto recebe por
+      parâmetro o `idProduto` a ser atualizado/inserido na vtex.
+
+      Pesquisa no gateway de produto e no banco de dados as informações
+      necesárias para poder prosseguir com a integração.
+
+      Enriquece os dados recebidos do banco e do gateway transformando-os em um
+      Objeto que será enviado para a vtex
+
+
+      * Inserir/atualizar Especificação: O fluxo de integração de Especificação
+      é chamado no final do fluxo de produto.
+
+      Responsável por montar o Objeto de especificação de produto de acordo com
+      as especificações do produto que podem ser
+
+      (`CONTROLADO`, `VENDA COM RECEITA`, `PRODUTO`, `PROMOÇÃO`).
+
+
+      * Inserir/atualizar Sku: O fluxo de integração de sku recebe como
+      parâmetro o `sku` a ser integrado na vtex.
+
+      Pesquisa no gateway de produto e no banco de dados as informações
+      necesárias para poder prosseguir com a integração.
+
+      Enriquece os dados recebidos do banco e do gateway transformando-os em um
+      Objeto que será enviado para a vtex
+  - name: Promoção
+    description: >
+      Fluxo responsável por persistir/atualizar as promoções na vtex, este fluxo
+      possui dois entry points
+
+      um que recebe o `idPromoção` e outro que recebe `idProdutoPromocao`
+
+
+      * Promoção por IdPromoção: O fluxo de integração de promoção recebe por
+      parâmetro o id de promoção a ser atualizada/inserida na vtex.
+
+      Pesquisa no gateway de promoção e no banco de dados as informações
+      necesárias para poder prosseguir com a integração.
+
+      Enriquece os dados recebidos do banco e do gateway transformando-o em um
+      Objeto que será enviado para a vtex
+
+
+      * Promoção por idProdutoPromocao: O fluxo de integração de promoção por
+      sku recebe por parâmetro o id de sku,
+
+      pesquisa no gateway de promoção por sku e no banco de dados as informações
+      necesárias para poder prosseguir com a integração.
+
+      Enriquece os dados recebidos do banco e do gateway transformando-o em um
+      Objeto que será enviado para a vtex
+
+
+      * Inserir/atualizar Especificação: O fluxo de integração de Especificação
+      é chamado no final do fluxo de promoção.
+
+      Responsável por montar o Objeto de especificação de produto informando que
+      o produto está em promoção.
+  - name: Rastreio
+    description: >-
+      Fluxo de integração de rastreio responsável por pesquisar no gateway de
+      pedidos informações sobre o status do pedido(á partir do id infomado como
+      parâmetro). Enriquecer o dado (de acordo com as informações retornadas do
+      gateway e pesquisando no banco de dados local) transformando-o em ou
+      Objeto para poder persitir na Vtex.
+  - name: Venda
+    description: >-
+      Fluxo de integração de venda. Responsável por receber informações de
+      pedido e retornar para a vtex a nota fiscal ?
+servers:
+  - url: https://{tenant}/api/v1
+    variables:
+      tenant:
+        default: www
+        description: Your tenant id
+  - url: https://example.com/api/v1
+paths:
+  /produto/{produtoId}:
+    put:
+      tags:
+        - Produto/Sku
+      summary: Integrar Produto
+      description: >-
+        Reponsável por chamar o fluxo de integração de produto. Ao finalizar o
+        fluxo de integração de produto chama o fluxo de integração de
+        especificação de produto
+      operationId: persitProduct
+      parameters:
+        - name: produtoId
+          in: path
+          description: Id do produto para integrar na Vtex
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sucesso!
+          $ref: '#/components/responses/Sucess'
+        '400':
+          description: o Id informado não é Número
+          $ref: '#/components/responses/Problem'
+        '404':
+          description: não foi encontrado produto na vtex para poder atualizar
+          $ref: '#/components/responses/Problem'
+        '500':
+          description: Erro ao persistir informações na vtex
+          $ref: '#/components/responses/Problem'
+      x-codeSamples:
+        - lang: Curl
+          source: |-
+            curl --request PUT \
+                 --url https://{tenant}/api/v1/produto/{produtoId} \
+                 --header 'Accept: application/json' \
+                 --header 'Content-Type: application/json'
+        - lang: Kotlin
+          source: |
+            import org.springframework.cloud.openfeign.FeignClient
+            import org.springframework.web.bind.annotation.GetMapping
+            import org.springframework.web.bind.annotation.PathVariable
+            import org.springframework.web.bind.annotation.RequestHeader
+
+
+            @FeignClient(
+                url = "\${fsj.api.fsjIntegracaoVtex}",
+                name = "fsjIntegracaoVtex",
+                decode404 = true,
+                configuration = [fsjIntegracaoVtexConfig::class]
+            )
+            interface IntegracaoVtex {
+                @PutMapping("/produto/{produtoId}")
+                fun integrar(@PathVariable("produtoId") produtoId: String): IntegResponseModel
+            }
+        - lang: Node.js
+          source: |-
+            const axios = require("axios").default;
+
+            const options = {
+              method: 'PUT',
+              url: 'https://{tenant}/api/v1/produto/{produtoId}',
+              headers: {'Content-Type': 'application/json', Accept: 'application/json'}
+            };
+
+            axios.request(options).then(function (response) {
+              console.log(response.data);
+            }).catch(function (error) {
+              console.error(error);
+            });
+  /produto/sku/{produtoId}:
+    put:
+      tags:
+        - Produto/Sku
+      summary: Integrar sku
+      description: >-
+        Reponsável por chamar o fluxo de integração de sku/imagem de
+        sku/descrição de imagem de sku.
+      operationId: persitSku
+      parameters:
+        - name: produtoId
+          in: path
+          description: Id do produto para integrar o Sku
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sucesso!
+          $ref: '#/components/responses/Sucess'
+        '400':
+          description: Um ou mais parametros informados não sao numeros
+          $ref: '#/components/responses/Problem'
+        '404':
+          description: De-Para de Produto não encontrada, chamar integração para {data}
+          $ref: '#/components/responses/Problem'
+        '500':
+          description: Erro ao persistir informações na vtex
+          $ref: '#/components/responses/Problem'
+      x-codeSamples:
+        - lang: Curl
+          source: |-
+            curl --request PUT \
+                 --url https://{tenant}/api/v1/produto/sku/{produtoId} \
+                 --header 'Accept: application/json' \
+                 --header 'Content-Type: application/json'
+        - lang: Kotlin
+          source: |
+            import org.springframework.cloud.openfeign.FeignClient
+            import org.springframework.web.bind.annotation.GetMapping
+            import org.springframework.web.bind.annotation.PathVariable
+            import org.springframework.web.bind.annotation.RequestHeader
+
+
+            @FeignClient(
+                url = "\${fsj.api.fsjIntegracaoVtex}",
+                name = "fsjIntegracaoVtex",
+                decode404 = true,
+                configuration = [fsjIntegracaoVtexConfig::class]
+            )
+            interface IntegracaoVtex {
+                @PutMapping("produto/sku/{produtoId}")
+                fun integrarSku(@PathVariable("produtoId") produtoId: String): IntegResponseModel
+            }
+        - lang: Node.js
+          source: |-
+            const axios = require("axios").default;
+
+            const options = {
+              method: 'PUT',
+              url: 'https://{tenant}/api/v1/produto/sku/{produtoId}',
+              headers: {'Content-Type': 'application/json', Accept: 'application/json'}
+            };
+
+            axios.request(options).then(function (response) {
+              console.log(response.data);
+            }).catch(function (error) {
+              console.error(error);
+            });
+  /estoque/lojas/{lojaId}/produtos/{produtoId}:
+    put:
+      tags:
+        - Estoque
+      summary: integrarEstoque
+      description: Responsável pela chamada do fluxo de estoque
+      operationId: persistStock
+      parameters:
+        - name: lojaId
+          in: path
+          description: Id da loja para integrar o estoque
+          required: true
+          schema:
+            type: string
+        - name: produtoId
+          in: path
+          description: Id do produto para integrar o estoque
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sucesso!
+          $ref: '#/components/responses/Sucess'
+        '400':
+          description: >-
+            Um ou mais parametros informados não são ou não podem ser
+            convertidos para Numero
+          $ref: '#/components/responses/Problem'
+        '404':
+          description: >-
+            Não foi encontrado foi produto/loja/lojaWarehouse no banco local, é
+            necessário integrar para prosseguir
+          $ref: '#/components/responses/Problem'
+        '428':
+          description: Sem informações de estoque para o produtoId
+          $ref: '#/components/responses/Problem'
+        '500':
+          description: Erro ao persistir informações na vtex
+          $ref: '#/components/responses/Problem'
+      x-codeSamples:
+        - lang: Curl
+          source: |
+            curl --request PUT \
+                 --url https://{tenant}/api/v1/estoque/lojas/{lojaId}/produtos/{produtoId} \
+                 --header 'Accept: application/json' \
+                 --header 'Content-Type: application/json'
+        - lang: Kotlin
+          source: |
+            import org.springframework.cloud.openfeign.FeignClient
+            import org.springframework.web.bind.annotation.GetMapping
+            import org.springframework.web.bind.annotation.PathVariable
+            import org.springframework.web.bind.annotation.RequestHeader
+
+
+            @FeignClient(
+                url = "\${fsj.api.fsjIntegracaoVtex}",
+                name = "fsjIntegracaoVtex",
+                decode404 = true,
+                configuration = [fsjIntegracaoVtexConfig::class]
+            )
+            interface IntegracaoVtex {
+                @PutMapping("/estoque/lojas/{lojaId}/produtos/{produtoId}")
+                fun integrar(@PathVariable("lojaId") sku: String
+                             @PathVariable("produtoId") sku: String): IntegResponseModel
+            }
+        - lang: Node.js
+          source: |
+            const axios = require("axios").default;
+
+            const options = {
+              method: 'PUT',
+              url: 'https://{tenant}/api/v1/estoque/lojas/{lojaId}/produtos/{produtoId}',
+              headers: {'Content-Type': 'application/json', Accept: 'application/json'}
+            };
+
+            axios.request(options).then(function (response) {
+              console.log(response.data);
+            }).catch(function (error) {
+              console.error(error);
+            });
+  /preco/{sku}:
+    put:
+      tags:
+        - Preço
+      summary: Integrar preço
+      description: Responsável por chamar o fluxo de integração de preço
+      operationId: persistPrice
+      parameters:
+        - name: sku
+          in: path
+          description: Sku do produto para integrar o preço
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sucesso!
+          $ref: '#/components/responses/Sucess'
+        '400':
+          description: O SKU informado {sku} não é um número
+          $ref: '#/components/responses/Problem'
+        '404':
+          description: Produto não encontrado na vtex
+          $ref: '#/components/responses/Problem'
+        '428':
+          description: Preço zerado ou inexistente
+          $ref: '#/components/responses/Problem'
+        '500':
+          description: Erro ao persistir informações na vtex
+          $ref: '#/components/responses/Problem'
+      x-codeSamples:
+        - lang: Curl
+          source: |-
+            curl --request PUT \
+                 --url https://{tenant}/api/v1/preco/{sku} \
+                 --header 'Accept: application/json' \
+                 --header 'Content-Type: application/json'
+        - lang: Kotlin
+          source: |
+            import org.springframework.cloud.openfeign.FeignClient
+            import org.springframework.web.bind.annotation.GetMapping
+            import org.springframework.web.bind.annotation.PathVariable
+            import org.springframework.web.bind.annotation.RequestHeader
+
+
+            @FeignClient(
+                url = "\${fsj.api.fsjIntegracaoVtex}",
+                name = "fsjIntegracaoVtex",
+                decode404 = true,
+                configuration = [fsjIntegracaoVtexConfig::class]
+            )
+            interface IntegracaoVtex {
+                @PutMapping("/preco/{sku}")
+                fun integrar(@PathVariable("sku") sku: String): IntegResponseModel
+            }
+        - lang: Node.js
+          source: |-
+            const axios = require("axios").default;
+
+            const options = {
+              method: 'PUT',
+              url: 'https://{tenant}/api/v1/preco/{sku}',
+              headers: {'Content-Type': 'application/json', Accept: 'application/json'}
+            };
+
+            axios.request(options).then(function (response) {
+              console.log(response.data);
+            }).catch(function (error) {
+              console.error(error);
+            });
+  /promotion/{promocaoId}:
+    put:
+      tags:
+        - Promoção
+      summary: Integrar Promoção
+      description: >-
+        Responsável por efetuar integração de promoção por Id de promoção.
+        Durante esta integração chama o fluxo de integração de especificação,
+        alterando a especificação dos produtos presentes na promoção integrada
+        na vtex.
+      operationId: persistPromotion
+      parameters:
+        - name: promocaoId
+          in: path
+          description: Id de Promocao para integrar
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sucesso!
+          $ref: '#/components/responses/Sucess'
+        '400':
+          description: Um ou mais parametros informados não sao numeros
+          $ref: '#/components/responses/Problem'
+        '404':
+          description: Não foi encontrado promoção no gateway FSJ
+          $ref: '#/components/responses/Problem'
+        '500':
+          description: Erro ao persistir informações na vtex
+          $ref: '#/components/responses/Problem'
+      x-codeSamples:
+        - lang: Curl
+          source: |-
+            curl --request PUT \
+                 --url https://{tenant}/api/v1/promotion/{promocaoId} \
+                 --header 'Accept: application/json' \
+                 --header 'Content-Type: application/json'
+        - lang: Kotlin
+          source: |
+            import org.springframework.cloud.openfeign.FeignClient
+            import org.springframework.web.bind.annotation.GetMapping
+            import org.springframework.web.bind.annotation.PathVariable
+            import org.springframework.web.bind.annotation.RequestHeader
+
+
+            @FeignClient(
+                url = "\${fsj.api.fsjIntegracaoVtex}",
+                name = "fsjIntegracaoVtex",
+                decode404 = true,
+                configuration = [fsjIntegracaoVtexConfig::class]
+            )
+            interface IntegracaoVtex {
+                @PutMapping("promotion/{promocaoId}")
+                fun integrarPromocao(@PathVariable("promocaoId") promocaoId: String): IntegResponseModel
+            }
+        - lang: Node.js
+          source: |-
+            const axios = require("axios").default;
+
+            const options = {
+              method: 'PUT',
+              url: 'https://{tenant}/api/v1/promotion/{promocaoId}',
+              headers: {'Content-Type': 'application/json', Accept: 'application/json'}
+            };
+
+            axios.request(options).then(function (response) {
+              console.log(response.data);
+            }).catch(function (error) {
+              console.error(error);
+            });
+  /promotion/sku/{sku}:
+    put:
+      tags:
+        - Promoção
+      summary: Integrar Promoção por sku
+      description: >-
+        Responsável por efetuar integração de promoção por sku. Durante esta
+        integração chama o fluxo de integração de especificação, alterando a
+        especificação dos produtos presentes na promoção integrada na vtex.
+      operationId: persistPromotionSku
+      parameters:
+        - name: sku
+          in: path
+          description: Id de sku para integrar promoção
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sucesso!
+          $ref: '#/components/responses/Sucess'
+        '400':
+          description: Um ou mais parametros informados não sao numeros
+          $ref: '#/components/responses/Problem'
+        '404':
+          description: Não foi encontrado promoção no gateway FSJ
+          $ref: '#/components/responses/Problem'
+        '500':
+          description: Erro ao persistir informações na vtex
+          $ref: '#/components/responses/Problem'
+      x-codeSamples:
+        - lang: Curl
+          source: |-
+            curl --request PUT \
+                 --url https://{tenant}/api/v1/promotion/sku/{sku} \
+                 --header 'Accept: application/json' \
+                 --header 'Content-Type: application/json'
+        - lang: Kotlin
+          source: |
+            import org.springframework.cloud.openfeign.FeignClient
+            import org.springframework.web.bind.annotation.GetMapping
+            import org.springframework.web.bind.annotation.PathVariable
+            import org.springframework.web.bind.annotation.RequestHeader
+
+
+            @FeignClient(
+                url = "\${fsj.api.fsjIntegracaoVtex}",
+                name = "fsjIntegracaoVtex",
+                decode404 = true,
+                configuration = [fsjIntegracaoVtexConfig::class]
+            )
+            interface IntegracaoVtex {
+                @PutMapping("promotion/sku/{sku}")
+                fun integrarPromocaoPorSku(@PathVariable("sku") sku: String): IntegResponseModel
+            }
+        - lang: Node.js
+          source: |-
+            const axios = require("axios").default;
+
+            const options = {
+              method: 'PUT',
+              url: 'https://{tenant}/api/v1/promotion/sku/{sku}',
+              headers: {'Content-Type': 'application/json', Accept: 'application/json'}
+            };
+
+            axios.request(options).then(function (response) {
+              console.log(response.data);
+            }).catch(function (error) {
+              console.error(error);
+            });
+  /pedido:
+    post:
+      tags:
+        - Pedido
+      summary: Consumir Feed pedidos
+      description: >-
+        Metodo responsável por consumir o feed de pedidos da vtex, transformar
+        as informações recebidas em um pedido FSJ e chamar a Api responsável por
+        salvar os pedidos na base FSJ.
+      operationId: integrateOrder
+      responses:
+        '200':
+          description: Sucesso!
+          $ref: '#/components/responses/Sucess'
+        '500':
+          description: Erro ao consumir a api de pedidos da vtex
+          $ref: '#/components/responses/Problem'
+      x-codeSamples:
+        - lang: Curl
+          source: |
+            curl --request POST \
+                 --url https://{tenant}/api/v1/pedido \
+                 --header 'Accept: application/json' \
+                 --header 'Content-Type: application/json'
+        - lang: Kotlin
+          source: |
+            @FeignClient(
+                url = "\${fsj.api.fsjIntegracaoVtex}",
+                name = "fsjIntegracaoVtex",
+                decode404 = true,
+                configuration = [fsjIntegracaoVtexConfig::class]
+            )
+            interface IntegracaoVtex {
+                @PostMapping("/pedido")
+                fun integrar(): IntegResponseModel
+            }
+        - lang: Node.js
+          source: |
+            const axios = require("axios").default;
+
+            const options = {
+              method: 'POST',
+              url: 'https://{tenant}/api/v1/pedido',
+              headers: {'Content-Type': 'application/json', Accept: 'application/json'}
+            };
+
+            axios.request(options).then(function (response) {
+              console.log(response.data);
+            }).catch(function (error) {
+              console.error(error);
+            });
+  /pedido/config:
+    post:
+      tags:
+        - Pedido
+      summary: Configurar o feed de pedidos
+      description: >-
+        Metodo que chama o fluxo responsável por enviar a devida configuração
+        para a vtex, permitindo consumir o feed de pedidos
+      operationId: persistConfig
+      responses:
+        '200':
+          description: Sucesso!
+          $ref: '#/components/responses/Sucess'
+        '500':
+          description: Erro ao consumir a api de pedidos da vtex
+          $ref: '#/components/responses/Problem'
+      x-codeSamples:
+        - lang: Curl
+          source: |
+            curl --request POST \
+                 --url https://{tenant}/api/v1/pedido/config \
+                 --header 'Accept: application/json' \
+                 --header 'Content-Type: application/json'
+        - lang: Kotlin
+          source: |
+            @FeignClient(
+              url = "\${fsj.api.fsjIntegracaoVtex}",
+              name = "fsjIntegracaoVtex",
+              decode404 = true,
+              configuration = [fsjIntegracaoVtexConfig::class]
+            )
+            interface IntegracaoVtex {
+              @PostMapping("/pedido/config")
+              fun configurar(): IntegResponseModel
+            }
+        - lang: Node.js
+          source: |
+            const axios = require("axios").default;
+
+            const options = {
+              method: 'POST',
+              url: 'https://{tenant}/api/v1/pedido/config',
+              headers: {'Content-Type': 'application/json', Accept: 'application/json'}
+            };
+
+            axios.request(options).then(function (response) {
+              console.log(response.data);
+            }).catch(function (error) {
+              console.error(error);
+            });
+    delete:
+      tags:
+        - Pedido
+      summary: Deletar configurações do feed de pedidos
+      description: >-
+        Metodo que chama o fluxo responsável deletar as configurações existentes
+        de consumo do feed de pedidos
+      operationId: deleteConfig
+      responses:
+        '200':
+          description: OK
+        '500':
+          description: Erro ao consumir a api de pedidos da vtex
+          $ref: '#/components/responses/Problem'
+      x-codeSamples:
+        - lang: Curl
+          source: |
+            curl --request DELETE \
+                 --url https://{tenant}/api/v1/pedido/config \
+                 --header 'Accept: application/json' \
+                 --header 'Content-Type: application/json'
+        - lang: Kotlin
+          source: |
+            import org.springframework.cloud.openfeign.FeignClient
+            import org.springframework.web.bind.annotation.GetMapping
+            import org.springframework.web.bind.annotation.PathVariable
+            import org.springframework.web.bind.annotation.RequestHeader
+
+
+            @FeignClient(
+                url = "\${fsj.api.fsjIntegracaoVtex}",
+                name = "fsjIntegracaoVtex",
+                decode404 = true,
+                configuration = [fsjIntegracaoVtexConfig::class]
+            )
+            interface IntegracaoVtex {
+                @DeleteMapping("/pedido/config")
+                fun deletarConfiguracao(): IntegResponseModel
+            }
+        - lang: Node.js
+          source: |
+            const axios = require("axios").default;
+
+            const options = {
+              method: 'DELETE',
+              url: 'https://{tenant}/api/v1/pedido/config',
+              headers: {'Content-Type': 'application/json', Accept: 'application/json'}
+            };
+
+            axios.request(options).then(function (response) {
+              console.log(response.data);
+            }).catch(function (error) {
+              console.error(error);
+            });
+  /loja/{lojaId}:
+    put:
+      tags:
+        - Loja
+      summary: Integrar loja
+      description: Responsável por chamar o fluxo de integração de loja/lojaWarehouse
+      operationId: persistDock
+      parameters:
+        - name: lojaId
+          in: path
+          description: Id da loja para ser integrada
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sucesso!
+          $ref: '#/components/responses/Sucess'
+        '400':
+          description: O Id de loja Informado {idLoja} não é um número
+          $ref: '#/components/responses/Problem'
+        '428':
+          description: >-
+            Erro nao foi encontrado loja para este id - ${lojaId} no gateway de
+            lojas
+          $ref: '#/components/responses/Problem'
+        '500':
+          description: Erro ao persistir informações na vtex
+          $ref: '#/components/responses/Problem'
+      x-codeSamples:
+        - lang: Curl
+          source: |-
+            curl --request PUT \
+                 --url https://{tenant}/api/v1/loja/{lojaId} \
+                 --header 'Accept: application/json' \
+                 --header 'Content-Type: application/json'
+        - lang: Kotlin
+          source: |
+            import org.springframework.cloud.openfeign.FeignClient
+            import org.springframework.web.bind.annotation.GetMapping
+            import org.springframework.web.bind.annotation.PathVariable
+            import org.springframework.web.bind.annotation.RequestHeader
+
+
+            @FeignClient(
+                url = "\${fsj.api.fsjIntegracaoVtex}",
+                name = "fsjIntegracaoVtex",
+                decode404 = true,
+                configuration = [fsjIntegracaoVtexConfig::class]
+            )
+            interface IntegracaoVtex {
+                @PostMapping("/loja/{lojaId}")
+                fun integrar(@PathVariable("lojaId") lojaId: String): IntegResponseModel
+            }
+        - lang: Node.js
+          source: |-
+            const axios = require("axios").default;
+
+            const options = {
+              method: 'PUT',
+              url: 'https://{tenant}/api/v1/loja/{lojaId}',
+              headers: {'Content-Type': 'application/json', Accept: 'application/json'}
+            };
+
+            axios.request(options).then(function (response) {
+              console.log(response.data);
+            }).catch(function (error) {
+              console.error(error);
+            });
+  /venda:
+    put:
+      tags:
+        - Venda
+      summary: Integrar Nfe
+      description: Chamada responsável por integrar o estoque por ID Loja e ID Produto
+      operationId: integrarNfe
+      responses:
+        '200':
+          description: Sucesso!
+          $ref: '#/components/responses/Sucess'
+        '400':
+          description: Um ou mais parametros informados não sao numeros
+          $ref: '#/components/responses/Problem'
+        '404':
+          description: >-
+            Não encontrado foi produto integrado na vtex, é necessário integrar
+            produto para prosseguir
+          $ref: '#/components/responses/Problem'
+        '500':
+          description: Erro ao persistir informações na vtex
+          $ref: '#/components/responses/Problem'
+  /rastreio/{pedidoId}:
+    put:
+      tags:
+        - Rastreio
+      summary: Integrar Rastreio
+      description: Chamada responsável por integrar o Rastreio
+      operationId: integrarEstoque
+      parameters:
+        - name: pedidoId
+          in: path
+          description: Id do pedido a ser persistido informações de rastreio
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sucesso!
+          $ref: '#/components/responses/Sucess'
+        '400':
+          description: Um ou mais parametros informados não sao numeros
+          $ref: '#/components/responses/Problem'
+        '404':
+          description: >-
+            Não encontrado foi produto integrado na vtex, é necessário integrar
+            produto para prosseguir
+          $ref: '#/components/responses/Problem'
+        '500':
+          description: Erro ao persistir informações na vtex
+          $ref: '#/components/responses/Problem'
+components:
+  schemas:
+    Sucess:
+      type: object
+      additionalProperties: false
+      minProperties: 2
+      properties:
+        message:
+          type: string
+          description: A Operação de integração foi concluída com sucesso!.
+        status:
+          type: number
+          description: '200'
+    Problem:
+      type: object
+      additionalProperties: false
+      minProperties: 2
+      properties:
+        statusCode:
+          type: integer
+          description: Código de status HTTP.
+          minimum: 400
+          maximum: 599
+        message:
+          type: string
+          description: descrição do erro ocorrido
+        error:
+          type: string
+          description: stack trace do erro ocorrido
+  responses:
+    Sucess:
+      description: Sucess
+      content:
+        application/sucess+json:
+          schema:
+            $ref: '#/components/schemas/Sucess'
+    Problem:
+      description: Problem
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
